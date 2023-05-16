@@ -1,149 +1,55 @@
-const express = require("express")
-const mongoose = require("mongoose")
+import express from "express"
 const app = express()
-const jwt = require('jsonwebtoken')
-const  User  = require("./models/User")
-const cors = require("cors")
-const cookieParser = require("cookie-parser")
-const bcrypt = require("bcrypt")
-require('dotenv').config()
-const ws = require("ws")
-const Message = require("./models/Message")
-app.use(express.json())
+import dotenv from "dotenv"
+dotenv.config()
+import mongoose from "mongoose"
+import authRoute from "./routes/auth.js"
+import usersRoute from "./routes/users.js"
+import cookieParser from "cookie-parser"
+import cors from "cors"
+
+// Api Middlewares
+
 app.use(cookieParser())
+app.use(express.json())
+
+// MongoDb Database
+const connect = async ()=>{
+    try {
+         mongoose.connect(process.env.MONGO)
+        
+        console.log("connected to MongoDB");
+    } catch (error) {
+        throw error
+    }
+}
+mongoose.set('strictQuery', true)
+
 
 app.use(cors({
     credentials:true,
     origin:process.env.CLIENT_URL
 }))
-mongoose.connect(process.env.MONGO_URL)
-const db = mongoose.connection;
-db.on("error", console.error.bind(console, "connection error: "));
-db.once("open", function () {
-  console.log("Connected successfully");
-});
+app.use("/api/auth",authRoute)
+app.use("/api/users",usersRoute)
 
-const getUserdataFromReq = (req)=>{
-    return new Promise((resolve,reject)=>{
-        const token = req.cookies?.token;
-
-        if(token){
-            jwt.verify(token,process.env.JWT_SECRET,{sameSite:'none',secure:true},(err,userData)=>{
-                if(err) throw err
+//error handling middleware
+app.use((err,req,res,next)=>{
+    const errorStatus = err.status || 500
+    const errorMessage = err.message || "Something went wrong!"
     
-                resolve(userData)
-            })
-        }else{
-            reject("No token")
-        }
+    return res.status(errorStatus).json({
+        success:false,
+        status: errorStatus,
+        message: errorMessage,
+        stack:err.stack
     })
-}
- 
-app.get('/',(req,res)=>{
-    res.json("Ok")
 })
 
-app.get('/messages/:userId',async(req,res)=>{
-    
-    const {userId} = req.params
-  const userData = await getUserdataFromReq(req)
-    const ourUserId = userData.userId
-    const messages = await Message.find({sender:{$in:[ourUserId,userId]},
-        recipient:{$in:[ourUserId,userId]}    }).sort({createdAt:1})
-       res.json(messages)
-})
-app.get("/profile",(req,res)=>{
-    try {
-        const token = req.cookies?.token;
 
-        if(token){
-            jwt.verify(token,process.env.JWT_SECRET,{sameSite:'none',secure:true},(err,userData)=>{
-                if(err) throw err
-    
-                res.json(userData)
-            })
-        }else{
-            res.status(401).json("No token")
-        }
-      
-    } catch (error) {
-        if(error) throw error
-        res.status(500).json("Some Error Occured")
-    }
-})
 
-app.post('/login',async(req,res)=>{
-    const {username,password} = req.body
-    const user = await User.findOne({username})
-    if(user){
-       const passOk =  bcrypt.compare(password,user.password)
-       if(passOk){
-        jwt.sign({userId:user._id,username},process.env.JWT_SECRET,{},(err,token)=>{
-            if(err) throw err
-            res.cookie('token',token).status(200).json({id:user._id})
-        })
-       }
-    }
-})
 
-app.post('/register',async(req,res)=>{
-    try {
-        const {username,password} = req.body
-
-        console.log(req.body);
-    const hashedPassword = bcrypt.hashSync(password,10)
-    const newuser = await User.create({username,password:hashedPassword})
-
-    jwt.sign({userId:newuser._id,username},process.env.JWT_SECRET,{},(err,token)=>{
-        if(err) throw err
-        res.cookie('token',token).status(201).json({id:newuser._id})
-    })
-    } catch (err) {
-        if(err) throw err
-        res.status(500).json("Some Error Occured")
-    }
-})
-const server = app.listen(4000)
-
-const wss = new ws.WebSocketServer({server})
-
-wss.on("connection",(connection,req)=>{
-    console.log("connected");
-    const cookies = req.headers.cookie
-    if(cookies){
-     const tokenCookieString = cookies.split(',').find(str=>str.startsWith("token="))
-     if(tokenCookieString){
-        const token = tokenCookieString.split('=')[1]
-        if(token){
-            if(token){
-                jwt.verify(token,process.env.JWT_SECRET,{sameSite:'none',secure:true},(err,userData)=>{
-                    if(err) throw err
-                   const {username,userId} = userData
-                   connection.userId = userId
-                   connection.username = username
-                })
-            }
-        }
-     }
-
-  
-        connection.on("message",async(message)=>{
-          const  messageData = JSON.parse(message.toString())
-            const {recipient,text} = messageData
-          const messageDoc = await Message.create({
-                sender:connection.userId,
-                recipient,
-                text
-            })
-            if(recipient && text){
-                [...wss.clients].filter(c=>c.userId === recipient).forEach(c=>c.send(JSON.stringify({text,sender:connection.userId,recipient,
-                _id:messageDoc._id})))
-            }
-        })
-    
-    }
-
-    [...wss.clients].forEach(client=>client.send(JSON.stringify({
-        online:[...wss.clients].map(c=>({userId:c.userId,username:c.username}))
-       })));
+app.listen(5000,()=>{
+    connect()
+    console.log("connected to Backend!");
 })

@@ -1,17 +1,25 @@
-import axios from 'axios'
-import Routes from './components/Routes';
-import { UserContextProvider } from './UserContxt';
+import axios from 'axios';
+import { useContext } from 'react';
+import Router from './Router';
+
+import {UserContextProvider } from './UserContext';
+
+
+
 
 
 function App() {
-axios.defaults.baseURL = "http://localhost:4000";
-axios.defaults.withCredentials = true
+  axios.defaults.baseURL = "http://localhost:5000";
+  axios.defaults.withCredentials = true
+
+
+
   return (
     <UserContextProvider>
-  <Routes/>
+    <div className='flex h-screen items-center justify-center'>
+        <Router/>
+    </div>
     </UserContextProvider>
-  
-    
   )
 }
 
